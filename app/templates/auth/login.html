@@ -1,0 +1,14 @@
+{% extends "bootstrap/base.html" %}
+{% import "bootstrap/wtf.html" as wtf %}
+
+{% block title %}Blog_mini-后台管理{% endblock %}
+
+{% block content %}
+<div class="page-header col-md-4 col-md-offset-4">
+    <h1>欢迎光临Blog_mini后台管理系统</h1>
+</div>
+<div class="col-md-4 col-md-offset-4">
+    {{ wtf.quick_form(form) }}
+</div>
+{% endblock %}
+
