@@ -1,5 +1,6 @@
 .idea/
 venv/
+migrations/
 __pycache__/
 .pyc
 .env

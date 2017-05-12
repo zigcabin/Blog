@@ -60,7 +60,6 @@ def articleDetails(id):
                           author_name=form.name.data,
                           author_email=form.email.data)
         db.session.add(comment)
-        db.session.commit()
         followed_id = int(form.follow.data)
         if followed_id != -1:
             followed = Comment.query.get_or_404(followed_id)
@@ -69,11 +68,10 @@ def articleDetails(id):
             comment.reply_to = followed.author_name
             db.session.add(f)
             db.session.add(comment)
-            db.session.commit()
-        flash(u'提交评论成功！', 'success')
+        flash('提交评论成功！', 'success')
         return redirect(url_for('.articleDetails', id=article.id, page=-1))
     if form.errors:
-        flash(u'发表评论失败', 'danger')
+        flash('发表评论失败', 'danger')
 
     page = request.args.get('page', 1, type=int)
     if page == -1:

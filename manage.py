@@ -15,7 +15,7 @@ if os.path.exists('.env'):
 
 from app import create_app, db
 from app.models import ArticleType, article_types, Source, \
-    Comment, Article, User, Menu, ArticleTypeSetting, BlogInfo, \
+    Comment, Article, Role, User, Menu, ArticleTypeSetting, BlogInfo, \
     Plugin, BlogView
 from flask_script import Manager, Shell
 from flask_migrate import Migrate, MigrateCommand
@@ -88,6 +88,8 @@ def deploy(deploy_type):
     if deploy_type == 'product':
         # step_1:insert basic blog info
         BlogInfo.insert_blog_info()
+        # create user roles
+        Role.insert_roles()
         # step_2:insert admin account
         User.insert_admin(email='blog_mini@163.com', username='blog_mini', password='blog_mini')
         # step_3:insert system default setting
@@ -107,6 +109,8 @@ def deploy(deploy_type):
         Menu.insert_menus()
         # step_2:insert articleTypes
         ArticleType.insert_articleTypes()
+        # generate random Users
+        User.generate_fake(50)
         # step_3:generate random articles
         Article.generate_fake(100)
         # step_4:generate random comments

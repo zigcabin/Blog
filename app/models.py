@@ -2,29 +2,115 @@
 import hashlib
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
-from flask_login import UserMixin
+from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
+from flask_login import UserMixin, AnonymousUserMixin
+from flask import current_app, request, url_for
 from . import db, login_manager
 
-article_types = {u'开发语言': ['Python', 'Java', 'JavaScript'],
-                 'Linux': [u'Linux成长之路', u'Linux运维实战', 'CentOS', 'Ubuntu'],
-                 u'网络技术': [u'思科网络技术', u'其它'],
-                 u'数据库': ['MySQL', 'Redis'],
-                 u'爱生活，爱自己': [u'生活那些事', u'学校那些事',u'感情那些事'],
-                 u'Web开发': ['Flask', 'Django'],}
+article_types = {'开发语言': ['Python', 'Java', 'JavaScript'],
+                 'Linux': ['Linux成长之路', 'Linux运维实战', 'CentOS', 'Ubuntu'],
+                 '网络技术': ['思科网络技术', '其它'],
+                 '数据库': ['MySQL', 'Redis'],
+                 '爱生活，爱自己': ['生活那些事', '学校那些事',u'感情那些事'],
+                 'Web开发': ['Flask', 'Django'],}
+
+
+class Permission:
+    FOLLOW = 0x01
+    COMMENT = 0x02
+    WRITE_ARTICLES = 0x04
+    MODERATE_COMMENTS = 0x08
+    ADMINISTER = 0x80
+
+
+class Role(db.Model):
+    __tablename__ = 'roles'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(64), unique=True)
+    default = db.Column(db.Boolean, default=False, index=True)
+    permissions = db.Column(db.Integer)
+    users = db.relationship('User', backref='role', lazy='dynamic')
+
+    @staticmethod
+    def insert_roles():
+        roles = {
+            'User': (Permission.FOLLOW |
+                     Permission.COMMENT |
+                     Permission.WRITE_ARTICLES, True),
+            'Moderator': (Permission.FOLLOW |
+                          Permission.COMMENT |
+                          Permission.WRITE_ARTICLES |
+                          Permission.MODERATE_COMMENTS, False),
+            'Administrator': (0xff, False)
+        }
+        for r in roles:
+            role = Role.query.filter_by(name=r).first()
+            if role is None:
+                role = Role(name=r)
+            role.permissions = roles[r][0]
+            role.default = roles[r][1]
+            db.session.add(role)
+        db.session.commit()
+
+    def __repr__(self):
+        return '<Role %r>' % self.name
 
 
 class User(UserMixin, db.Model):
+    __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(64), unique=True, index=True)
     username = db.Column(db.String(64), unique=True, index=True)
+    role_id = db.Column(db.Integer, db.ForeignKey('roles.id'))
     password_hash = db.Column(db.String(128))
+    confirmed = db.Column(db.Boolean, default=False)
+    name = db.Column(db.String(64))
+    location = db.Column(db.String(64))
+    about_me = db.Column(db.Text())
+    member_since = db.Column(db.DateTime(), default=datetime.utcnow)
+    last_seen = db.Column(db.DateTime(), default=datetime.utcnow)
     avatar_hash = db.Column(db.String(32))
+    articles = db.relationship('Article', backref='author', lazy='dynamic')
+    comments = db.relationship('Comment', backref='author', lazy='dynamic')
+
+    @staticmethod
+    def generate_fake(count=100):
+        from sqlalchemy.exc import IntegrityError
+        from random import seed
+        import forgery_py
+
+        seed()
+        for i in range(count):
+            u = User(email=forgery_py.internet.email_address(),
+                     username=forgery_py.internet.user_name(True),
+                     password=forgery_py.lorem_ipsum.word(),
+                     confirmed=True,
+                     name=forgery_py.name.full_name(),
+                     location=forgery_py.address.city(),
+                     about_me=forgery_py.lorem_ipsum.sentence(),
+                     member_since=forgery_py.date.date(True))
+            db.session.add(u)
+            try:
+                db.session.commit()
+            except IntegrityError:
+                db.session.rollback()
 
     @staticmethod
     def insert_admin(email, username, password):
-        user = User(email=email, username=username, password=password)
+        user = User(email=email, username=username, password=password, confirmed=True)
         db.session.add(user)
         db.session.commit()
+
+    def __init__(self, **kwargs):
+        super(User, self).__init__(**kwargs)
+        if self.role is None:
+            if self.email == current_app.config['FLASKY_ADMIN']:
+                self.role = Role.query.filter_by(permissions=0xff).first()
+            if self.role is None:
+                self.role = Role.query.filter_by(default=True).first()
+        if self.email is not None and self.avatar_hash is None:
+            self.avatar_hash = hashlib.md5(
+                self.email.encode('utf-8')).hexdigest()
 
     @property
     def password(self):
@@ -37,22 +123,126 @@ class User(UserMixin, db.Model):
     def verify_password(self, password):
         return check_password_hash(self.password_hash, password)
 
-    def __init__(self, **kwargs):
-        super(User, self).__init__(**kwargs)
-        if self.email is not None and self.avatar_hash is None:
-            self.avatar_hash = hashlib.md5(
-                    self.email.encode('utf-8')).hexdigest()
+    def generate_confirmation_token(self, expiration=3600):
+        s = Serializer(current_app.config['SECRET_KEY'], expiration)
+        return s.dumps({'confirm': self.id})
 
-    def gravatar(self, size=40, default='identicon', rating='g'):
-        # if request.is_secure:
-        #     url = 'https://secure.gravatar.com/avatar'
-        # else:
-        #     url = 'http://www.gravatar.com/avatar'
-        url = 'http://gravatar.duoshuo.com/avatar'
+    def confirm(self, token):
+        s = Serializer(current_app.config['SECRET_KEY'])
+        try:
+            data = s.loads(token)
+        except:
+            return False
+        if data.get('confirm') != self.id:
+            return False
+        self.confirmed = True
+        db.session.add(self)
+        return True
+
+    def generate_reset_token(self, expiration=3600):
+        s = Serializer(current_app.config['SECRET_KEY'], expiration)
+        return s.dumps({'reset': self.id})
+
+    def reset_password(self, token, new_password):
+        s = Serializer(current_app.config['SECRET_KEY'])
+        try:
+            data = s.loads(token)
+        except:
+            return False
+        if data.get('reset') != self.id:
+            return False
+        self.password = new_password
+        db.session.add(self)
+        return True
+
+    def generate_email_change_token(self, new_email, expiration=3600):
+        s = Serializer(current_app.config['SECRET_KEY'], expiration)
+        return s.dumps({'change_email': self.id, 'new_email': new_email})
+
+    def change_email(self, token):
+        s = Serializer(current_app.config['SECRET_KEY'])
+        try:
+            data = s.loads(token)
+        except:
+            return False
+        if data.get('change_email') != self.id:
+            return False
+        new_email = data.get('new_email')
+        if new_email is None:
+            return False
+        if self.query.filter_by(email=new_email).first() is not None:
+            return False
+        self.email = new_email
+        self.avatar_hash = hashlib.md5(
+            self.email.encode('utf-8')).hexdigest()
+        db.session.add(self)
+        return True
+
+    def can(self, permissions):
+        return self.role is not None and \
+            (self.role.permissions & permissions) == permissions
+
+    def is_administrator(self):
+        return self.can(Permission.ADMINISTER)
+
+    def ping(self):
+        self.last_seen = datetime.utcnow()
+        db.session.add(self)
+
+    def gravatar(self, size=100, default='identicon', rating='g'):
+        if request.is_secure:
+            url = 'https://secure.gravatar.com/avatar'
+        else:
+            url = 'http://www.gravatar.com/avatar'
         hash = self.avatar_hash or hashlib.md5(
             self.email.encode('utf-8')).hexdigest()
         return '{url}/{hash}?s={size}&d={default}&r={rating}'.format(
             url=url, hash=hash, size=size, default=default, rating=rating)
+
+    def to_json(self):
+        json_user = {
+            'url': url_for('api.get_user', id=self.id, _external=True),
+            'username': self.username,
+            'member_since': self.member_since,
+            'last_seen': self.last_seen,
+            'posts': url_for('api.get_user_posts', id=self.id, _external=True),
+            'followed_posts': url_for('api.get_user_followed_posts',
+                                      id=self.id, _external=True),
+            'post_count': self.posts.count()
+        }
+        return json_user
+
+    def generate_auth_token(self, expiration):
+        s = Serializer(current_app.config['SECRET_KEY'],
+                       expires_in=expiration)
+        return s.dumps({'id': self.id}).decode('ascii')
+
+    @staticmethod
+    def verify_auth_token(token):
+        s = Serializer(current_app.config['SECRET_KEY'])
+        try:
+            data = s.loads(token)
+        except:
+            return None
+        return User.query.get(data['id'])
+
+    def __repr__(self):
+        return '<User %r>' % self.username
+
+
+class AnonymousUser(AnonymousUserMixin):
+    def can(self, permissions):
+        return False
+
+    def is_administrator(self):
+        return False
+
+login_manager.anonymous_user = AnonymousUser
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
 
 
 # callback function for flask-login extentsion
@@ -75,8 +265,7 @@ class Menu(db.Model):
 
     @staticmethod
     def insert_menus():
-        menus = [u'Web开发', u'数据库', u'网络技术', u'爱生活，爱自己',
-                 u'Linux世界', u'开发语言']
+        menus = article_types.keys()
         for name in menus:
             menu = Menu(name=name)
             db.session.add(menu)
@@ -88,7 +277,7 @@ class Menu(db.Model):
     @staticmethod
     def return_menus():
         menus = [(m.id, m.name) for m in Menu.query.all()]
-        menus.append((-1, u'不选择导航（该分类将单独成一导航）'))
+        menus.append((-1, '不选择导航（该分类将单独成一导航）'))
         return menus
 
     def __repr__(self):
@@ -119,7 +308,7 @@ class ArticleTypeSetting(db.Model):
 
     @staticmethod
     def return_setting_hide():
-        return [(2, u'公开'), (1, u'隐藏')]
+        return [(2, '公开'), (1, '隐藏')]
 
     def __repr__(self):
         return '<ArticleTypeSetting %r>' % self.name
@@ -136,8 +325,8 @@ class ArticleType(db.Model):
 
     @staticmethod
     def insert_system_articleType():
-        articleType = ArticleType(name=u'未分类',
-                                  introduction=u'系统默认分类，不可删除。',
+        articleType = ArticleType(name='未分类',
+                                  introduction='系统默认分类，不可删除。',
                                   setting=ArticleTypeSetting.query.filter_by(protected=True).first()
                                   )
         db.session.add(articleType)
@@ -145,15 +334,13 @@ class ArticleType(db.Model):
 
     @staticmethod
     def insert_articleTypes():
-        articleTypes = ['Python', 'Java', 'JavaScript', 'Django',
-                        'CentOS', 'Ubuntu', 'MySQL', 'Redis',
-                        u'Linux成长之路', u'Linux运维实战', u'其它',
-                        u'思科网络技术', u'生活那些事', u'学校那些事',
-                        u'感情那些事', 'Flask']
-        for name in articleTypes:
-            articleType = ArticleType(name=name,
-                                      setting=ArticleTypeSetting(name=name))
-            db.session.add(articleType)
+        for menu in Menu.query.order_by(Menu.order.asc()).all():
+            menuArticleTypes = article_types.get(menu.name, None)
+            if menuArticleTypes is not None:
+                for name in menuArticleTypes:
+                    articleType = ArticleType(name=name, menu_id=menu.id,
+                                              setting=ArticleTypeSetting(name=name))
+                    db.session.add(articleType)
         db.session.commit()
 
     @property
@@ -184,9 +371,9 @@ class Source(db.Model):
 
     @staticmethod
     def insert_sources():
-        sources = (u'原创',
-                   u'转载',
-                   u'翻译')
+        sources = ('原创',
+                   '转载',
+                   '翻译')
         for s in sources:
             source = Source.query.filter_by(name=s).first()
             if source is None:
@@ -211,9 +398,10 @@ class Comment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     content = db.Column(db.Text)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-    author_name = db.Column(db.String(64))
-    author_email = db.Column(db.String(64))
-    avatar_hash = db.Column(db.String(32))
+    author_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    #author_name = db.Column(db.String(64))
+    #author_email = db.Column(db.String(64))
+    #avatar_hash = db.Column(db.String(32))
     article_id = db.Column(db.Integer, db.ForeignKey('articles.id'))
     disabled = db.Column(db.Boolean, default=False)
     comment_type = db.Column(db.String(64), default='comment')
@@ -230,22 +418,22 @@ class Comment(db.Model):
                                lazy='dynamic',
                                cascade='all, delete-orphan')
     # self.followed.first().followed.author_name
-    def __init__(self, **kwargs):
-        super(Comment, self).__init__(**kwargs)
-        if self.author_email is not None and self.avatar_hash is None:
-            self.avatar_hash = hashlib.md5(
-                    self.author_email.encode('utf-8')).hexdigest()
+    #def __init__(self, **kwargs):
+    #    super(Comment, self).__init__(**kwargs)
+    #    if self.author_email is not None and self.avatar_hash is None:
+    #        self.avatar_hash = hashlib.md5(
+    #                self.author_email.encode('utf-8')).hexdigest()
 
-    def gravatar(self, size=40, default='identicon', rating='g'):
+    #def gravatar(self, size=40, default='identicon', rating='g'):
         # if request.is_secure:
         #     url = 'https://secure.gravatar.com/avatar'
         # else:
         #     url = 'http://www.gravatar.com/avatar'
-        url = 'http://gravatar.duoshuo.com/avatar'
-        hash = self.avatar_hash or hashlib.md5(
-            self.author_email.encode('utf-8')).hexdigest()
-        return '{url}/{hash}?s={size}&d={default}&r={rating}'.format(
-            url=url, hash=hash, size=size, default=default, rating=rating)
+    #    url = 'http://gravatar.duoshuo.com/avatar'
+    #    hash = self.avatar_hash or hashlib.md5(
+    #        self.author_email.encode('utf-8')).hexdigest()
+    #    return '{url}/{hash}?s={size}&d={default}&r={rating}'.format(
+    #        url=url, hash=hash, size=size, default=default, rating=rating)
 
     @staticmethod
     def generate_fake(count=100):
@@ -254,13 +442,13 @@ class Comment(db.Model):
 
         seed()
         article_count = Article.query.count()
+        user_count = User.query.count()
         for i in range(count):
             a = Article.query.offset(randint(0, article_count - 1)).first()
+            u = User.query.offset(randint(0, user_count - 1)).first()
             c = Comment(content=forgery_py.lorem_ipsum.sentences(randint(3, 5)),
                         timestamp=forgery_py.date.date(True),
-                        author_name=forgery_py.internet.user_name(True),
-                        author_email=forgery_py.internet.email_address(),
-                        article=a)
+                        article=a, author=u)
             db.session.add(c)
         try:
             db.session.commit()
@@ -274,14 +462,15 @@ class Comment(db.Model):
 
         seed()
         comment_count = Comment.query.count()
+        user_count = User.query.count()
         for i in range(count):
             followed = Comment.query.offset(randint(0, comment_count - 1)).first()
+            u = User.query.offset(randint(0, user_count - 1)).first()
             c = Comment(content=forgery_py.lorem_ipsum.sentences(randint(3, 5)),
                         timestamp=forgery_py.date.date(True),
-                        author_name=forgery_py.internet.user_name(True),
-                        author_email=forgery_py.internet.email_address(),
                         article=followed.article, comment_type='reply',
-                        reply_to=followed.author_name)
+                        reply_to=followed.author.name,
+                        author=u)
             f = Follow(follower=c, followed=followed)
             db.session.add(f)
             db.session.commit()
@@ -295,7 +484,8 @@ class Comment(db.Model):
 
     def followed_name(self):
         if self.is_reply():
-            return self.followed.first().followed.author_name
+            return self.followed.first().followed.author.name
+
 
 class Article(db.Model):
     __tablename__ = 'articles'
@@ -308,6 +498,7 @@ class Article(db.Model):
     num_of_view = db.Column(db.Integer, default=0)
     articleType_id = db.Column(db.Integer, db.ForeignKey('articleTypes.id'))
     source_id = db.Column(db.Integer, db.ForeignKey('sources.id'))
+    author_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     comments = db.relationship('Comment', backref='article', lazy='dynamic')
 
     @staticmethod
@@ -319,14 +510,16 @@ class Article(db.Model):
         seed()
         articleType_count = ArticleType.query.count()
         source_count = Source.query.count()
+        user_count = User.query.count()
         for i in range(count):
             aT = ArticleType.query.offset(randint(0, articleType_count - 1)).first()
             s = Source.query.offset(randint(0, source_count - 1)).first()
+            u = User.query.offset(randint(0, user_count - 1)).first()
             a = Article(title=forgery_py.lorem_ipsum.title(randint(3, 5)),
                         content=forgery_py.lorem_ipsum.sentences(randint(15, 35)),
                         summary=forgery_py.lorem_ipsum.sentences(randint(2, 5)),
                         num_of_view=randint(100, 15000),
-                        articleType=aT, source=s)
+                        articleType=aT, source=s, author=u)
             db.session.add(a)
             try:
                 db.session.commit()
@@ -356,7 +549,6 @@ class BlogInfo(db.Model):
                                   signature='每天都是一个美好而全新的开始！— By Charles',
                                   navbar='inverse')
         db.session.add(blog_mini_info)
-        db.session.commit()
 
 
 class Plugin(db.Model):
@@ -370,8 +562,8 @@ class Plugin(db.Model):
 
     @staticmethod
     def insert_system_plugin():
-        plugin = Plugin(title=u'博客统计',
-                        note=u'系统插件',
+        plugin = Plugin(title='博客统计',
+                        note='系统插件',
                         content='system_plugin',
 			order=1)
         db.session.add(plugin)

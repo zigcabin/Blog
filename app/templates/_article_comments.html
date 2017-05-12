@@ -16,21 +16,22 @@
                 </p>
             {% endif %}
             <div class="comment-thumbnail">
-                <img class="img-rounded profile-thumbnail" src="{{ comment.gravatar() }}">
+                <img class="img-rounded profile-thumbnail" src="{{ comment.author.gravatar(size=40) }}">
             </div>
             <div class="comment-info">
                 <div class="comment-date"><span>{{ moment(comment.timestamp.replace(microsecond=0)).format('LLL') }}</span></div>
                 <div class="comment-author">
-                    <span>{{ comment.author_name }}</span>
-                    {% if User.query.filter_by(email=comment.author_email).count() %}
+                    <span>{{ comment.author.name }}</span>
+                    <!-- TODO:add user -->
+                    {% if comment.author.is_administrator() %}
                         <span class="glyphicon glyphicon-user">管理员</span>
                     {% endif %}
                 </div>
                 <div class="comment-content">
-                    {% if comment.disabled == False or current_user.is_authenticated %}
+                    {% if comment.disabled == False or current_user.is_administrator() %}
                         <p>{{ comment.content }}</p>
                     {% endif %}
-                    {% if comment.disabled == True and current_user.is_authenticated %}
+                    {% if comment.disabled == True and current_user.is_administrator() %}
                         <p class="disabled-comment-admin-info">
                             <span class="glyphicon glyphicon-remove-sign"></span>
                             <i>该评论已经被管理员屏蔽！访客无法查看和回复此评论内容。</i>
@@ -44,7 +45,7 @@
                 </div>
             </div>
             <div class="row comment-handle">
-                {% if current_user.is_authenticated %}
+                {% if current_user.is_administrator() %}
                 <div class="col-sm-1 col-sm-offset-8">
                     {% if comment.disabled == False %}
                     <a class="btn btn-sm btn-warning"

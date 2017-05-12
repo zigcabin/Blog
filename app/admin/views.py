@@ -44,7 +44,6 @@ def submitArticles():
             article = Article(title=title, content=content, summary=summary,
                               source=source, articleType=articleType)
             db.session.add(article)
-            db.session.commit()
             flash(u'发表博文成功！', 'success')
             article_id = Article.query.filter_by(title=title).first().id
             return redirect(url_for('main.articleDetails', id=article_id))
@@ -76,7 +75,6 @@ def editArticles(id):
         article.summary = form.summary.data
         article.update_time = datetime.utcnow()
         db.session.add(article)
-        db.session.commit()
         flash(u'博文更新成功！', 'success')
         return redirect(url_for('main.articleDetails', id=article.id))
     form.source.data = article.source_id
