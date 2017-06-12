@@ -27,13 +27,13 @@
             <div class="comment-thumbnail">
                 <input type="checkbox" class="op_check op_check_com" value="{{ comment.id }}">&nbsp;
                 <img class="img-rounded profile-thumbnail"
-                     src="{{ comment.gravatar() }}">
+                     src="{{ comment.author.gravatar(size=40) }}">
             </div>
             <div class="comment-info-admin">
                 <span class="comment-author">
-                    {{ comment.author_name }}
-                    {{ comment.author_email }}
-                    {% if User.query.filter_by(email=comment.author_email).count() %}
+                    {{ comment.author.name }}
+                    <!-- {{ comment.author.email }} -->
+                    {% if comment.author.is_administrator() %}
                         <span class="glyphicon glyphicon-user">管理员</span>
                     {% endif %}
                 </span>
@@ -42,7 +42,7 @@
                     发表评论：
                 </span>
                 <a class="btn btn-sm btn-info comment-handle-admin" title="回复评论"
-                   onclick="pop_commentForm('{{ comment.id }}', '{{ comment.article.id }}')">
+                   onclick="pop_commentForm('{{ comment.id }}', '{{ comment.article.id }}', '1')">
                     <span class="glyphicon glyphicon-comment"></span>
                 </a>
                 <a class="btn btn-sm btn-danger comment-handle-admin delete-comment-admin-btn"  title="删除评论"
@@ -180,10 +180,7 @@
                             {{ form.csrf_token }}
                             {{ form.follow(type='hidden') }}
                             {{ form.article(type='hidden') }}
-                            {{ form.name.label }}
-                            {{ form.name(class='form-control', required='', readonly='true', value=current_user.username) }}
-                            {{ form.email.label }}
-                            {{ form.email(class='form-control', required='', readonly='true', value=current_user.email) }}
+                            {{ form.author(type='hidden') }}
                             {{ form.content.label }}{{ form.content(class='form-control', required='') }}
                         </div>
 

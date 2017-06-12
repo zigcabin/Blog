@@ -6,12 +6,13 @@ from flask import render_template, redirect, flash, \
 from flask_login import login_required, current_user
 from . import admin
 from ..models import ArticleType, Source, Article, article_types, \
-    Comment, User, Follow, Menu, ArticleTypeSetting, BlogInfo, Plugin
+    Comment, Permission, User, Follow, Menu, ArticleTypeSetting, BlogInfo, Plugin
 from .forms import SubmitArticlesForm, ManageArticlesForm, DeleteArticleForm, \
     DeleteArticlesForm, AdminCommentForm, DeleteCommentsForm, AddArticleTypeForm, \
     EditArticleTypeForm, AddArticleTypeNavForm, EditArticleNavTypeForm, SortArticleNavTypeForm, \
     CustomBlogInfoForm, AddBlogPluginForm, ChangePasswordForm, EditUserInfoForm
 from .. import db
+from ..decorators import admin_required, permission_required
 
 
 @admin.route('/')
@@ -22,6 +23,7 @@ def manager():
 
 @admin.route('/submit-articles', methods=['GET', 'POST'])
 @login_required
+@permission_required(Permission.WRITE_ARTICLES)
 def submitArticles():
     form = SubmitArticlesForm()
 
@@ -35,13 +37,12 @@ def submitArticles():
         source_id = form.source.data
         content = form.content.data
         type_id = form.types.data
-        summary = form.summary.data
 
         source = Source.query.get(source_id)
         articleType = ArticleType.query.get(type_id)
 
         if source and articleType:
-            article = Article(title=title, content=content, summary=summary,
+            article = Article(title=title, content=content,
                               source=source, articleType=articleType)
             db.session.add(article)
             flash(u'发表博文成功！', 'success')
@@ -50,11 +51,12 @@ def submitArticles():
     if form.errors:
         flash(u'发表博文失败', 'danger')
 
-    return render_template('admin/submit_articles.html', form=form)
+    return render_template('admin/submit_articles.html', form=form, Permission=Permission)
 
 
 @admin.route('/edit-articles/<int:id>', methods=['GET', 'POST'])
 @login_required
+@permission_required(Permission.WRITE_ARTICLES)
 def editArticles(id):
     article = Article.query.get_or_404(id)
     form = SubmitArticlesForm()
@@ -72,7 +74,6 @@ def editArticles(id):
 
         article.title = form.title.data
         article.content = form.content.data
-        article.summary = form.summary.data
         article.update_time = datetime.utcnow()
         db.session.add(article)
         flash(u'博文更新成功！', 'success')
@@ -81,8 +82,7 @@ def editArticles(id):
     form.title.data = article.title
     form.content.data = article.content
     form.types.data = article.articleType_id
-    form.summary.data = article.summary
-    return render_template('admin/submit_articles.html', form=form)
+    return render_template('admin/submit_articles.html', form=form, Permission=Permission)
 
 
 @admin.route('/manage-articles', methods=['GET', 'POST'])
@@ -140,7 +140,7 @@ def manage_articles():
                            articles=articles, pagination=pagination,
                            endpoint='admin.manage_articles',
                            form=form, form2=form2, form3=from3,
-                           types_id=types_id, source_id=source_id, page=page)
+                           types_id=types_id, source_id=source_id, page=page, Permission=Permission)
 
 
 @admin.route('/manage-articles/delete-article', methods=['GET', 'POST'])
@@ -271,22 +271,22 @@ def delete_comment(id):
 @admin.route('/manage-comments', methods=['GET', 'POST'])
 @login_required
 def manage_comments():
-    form = AdminCommentForm(follow=-1, article=-1)
+    form = AdminCommentForm(follow=-1, article=-1, author=-1)
     form2 = DeleteCommentsForm(commentIds=-1)
 
     if form.validate_on_submit():
         article = Article.query.get_or_404(int(form.article.data))
+        author = current_user._get_current_object()
         comment = Comment(article=article,
-                          content=form.content.data,
-                          author_name=form.name.data,
-                          author_email=form.email.data)
+                          author=author,
+                          content=form.content.data)
         db.session.add(comment)
         db.session.commit()
 
         followed = Comment.query.get_or_404(int(form.follow.data))
         f = Follow(follower=comment, followed=followed)
         comment.comment_type = 'reply'
-        comment.reply_to = followed.author_name
+        comment.reply_to = followed.author.name
         db.session.add(f)
         db.session.add(comment)
         db.session.commit()
@@ -304,7 +304,7 @@ def manage_comments():
     return render_template('admin/manage_comments.html', User=User,
                            Comment=Comment, comments=comments,
                            pagination=pagination, page=page,
-                           endpoint='.manage_comments', form=form, form2=form2)
+                           endpoint='.manage_comments', form=form, form2=form2, Permission=Permission)
 
 
 @admin.route('/manage-comments/delete-comments', methods=['GET', 'POST'])
@@ -382,7 +382,7 @@ def manage_articleTypes():
     articleTypes = pagination.items
     return render_template('admin/manage_articleTypes.html', articleTypes=articleTypes,
                            pagination=pagination, endpoint='.manage_articleTypes',
-                           form=form, form2=form2, page=page)
+                           form=form, form2=form2, page=page, Permission=Permission)
 # 提示，添加分类的验证表单也写在了上面，建议可以分开来写，这里只是提供一种方法，前面的也是如此
 # 虽然分开来写会多写一点代码，但这样的逻辑就更清晰了
 # 另外需要注意的是，两个验证表单写在同一个view当中会出现问题，所以建议还是分开来写
@@ -527,7 +527,7 @@ def manage_articleTypes_nav():
     menus = pagination.items
     return render_template('admin/manage_articleTypes_nav.html', menus=menus,
                            pagination=pagination, endpoint='.manage_articleTypes_nav',
-                           page=page, form=form, form2=form2, form3=form3)
+                           page=page, form=form, form2=form2, form3=form3, Permission=Permission)
 
 
 @admin.route('/manage-articleTypes/nav/edit-nav', methods=['GET', 'POST'])
@@ -647,7 +647,7 @@ def custom_blog_info():
         flash(u'修改博客基本信息成功！', 'success')
         return redirect(url_for('admin.custom_blog_info'))
 
-    return render_template('admin/custom_blog_info.html', form=form)
+    return render_template('admin/custom_blog_info.html', form=form, Permission=Permission)
 
 
 @admin.route('/custom/blog-info/get')
@@ -678,7 +678,7 @@ def custom_blog_plugin():
 
     return render_template('admin/custom_blog_plugin.html',
                            Plugin=Plugin, pagination=pagination, endpoint='.custom_blog_plugin',
-                           plugins=plugins, page=page)
+                           plugins=plugins, page=page, Permission=Permission)
 
 
 @admin.route('/custom/blog-plugin/delete/<int:id>')
@@ -773,7 +773,7 @@ def add_plugin():
             form = AddBlogPluginForm(title=title, note=form.note.data,
                                      content=form.content.data)
             flash(u'添加插件失败！该插件名称已经存在。', 'danger')
-            return render_template('admin/blog_plugin_add.html', form=form)
+            return render_template('admin/blog_plugin_add.html', form=form, Permission=Permission)
         else:
             note = form.note.data
             content = form.content.data
@@ -785,7 +785,7 @@ def add_plugin():
             flash(u'添加插件成功！', 'success')
         return redirect(url_for('admin.custom_blog_plugin'))
 
-    return render_template('admin/blog_plugin_add.html', form=form)
+    return render_template('admin/blog_plugin_add.html', form=form, Permission=Permission)
 
 
 @admin.route('/custom/blog-plugin/edit/<int:id>', methods=['GET', 'POST'])
@@ -811,7 +811,7 @@ def edit_plugin(id):
             flash(u'修改插件成功！', 'success')
         return redirect(url_for('admin.custom_blog_plugin', page=page))
 
-    return render_template('admin/blog_plugin_add.html', form=form, page=page)
+    return render_template('admin/blog_plugin_add.html', form=form, page=page, Permission=Permission)
 
 
 @admin.route('/account/')
@@ -821,7 +821,7 @@ def account():
     form2 = EditUserInfoForm()
 
     return render_template('admin/admin_account.html',
-                           form=form, form2=form2)
+                           form=form, form2=form2, Permission=Permission)
 
 
 @admin.route('/account/change-password', methods=['GET', 'POST'])
@@ -863,4 +863,4 @@ def edit_user_info():
 @login_required
 def help():
 
-    return render_template('admin/help_page.html')
+    return render_template('admin/help_page.html', Permission=Permission)

@@ -1,23 +1,31 @@
 {% extends 'base.html' %}
 
-
 {% block content %}
 <div class="container">
     <div class="row">
         <div class="col-md-2 entry-box" style="background-color: ">
             <ul class="nav nav-list">
-				<li class="nav-header">博文管理</li>
-				<li><a href="{{ url_for('admin.submitArticles') }}">发表博文</a></li>
-				<li><a href="{{ url_for('admin.manage_articles') }}">管理博文</a></li>
-				<li><a href="{{ url_for('admin.manage_articleTypes') }}">博文分类</a></li>
+                {% if current_user.can(Permission.WRITE_ARTICLES) %}
+                    <li class="nav-header">博文管理</li>
+                    <li><a href="{{ url_for('admin.submitArticles') }}">发表博文</a></li>
+                    <li><a href="{{ url_for('admin.manage_articles') }}">管理博文</a></li>
+                    {% if current_user.can(Permission.MODERATE_COMMENTS) %}
+                        <li><a href="{{ url_for('admin.manage_articles') }}">管理博文(管理员)</a></li>
+                        <li><a href="{{ url_for('admin.manage_articleTypes') }}">博文分类</a></li>
+                    {% endif %}
+                {% endif %}
 
-				<li class="nav-header">评论管理</li>
-				<li><a href="{{ url_for('admin.manage_comments') }}">博文评论</a></li>
+                {% if current_user.can(Permission.COMMENT) %}
+                    <li class="nav-header">评论管理</li>
+                    <li><a href="{{ url_for('admin.manage_comments') }}">博文评论</a></li>
+                {% endif %}
 
-                <li class="nav-header">博客定制</li>
-				<li><a href="{{ url_for('admin.custom_blog_info') }}">基本信息</a></li>
-				<li><a href="{{ url_for('admin.custom_blog_plugin') }}">插件管理</a></li>
-				<li><a href="{{ url_for('admin.add_plugin') }}">添加插件</a></li>
+                {% if current_user.is_administrator() %}
+                    <li class="nav-header">博客定制</li>
+                    <li><a href="{{ url_for('admin.custom_blog_info') }}">基本信息</a></li>
+                    <li><a href="{{ url_for('admin.custom_blog_plugin') }}">插件管理</a></li>
+                    <li><a href="{{ url_for('admin.add_plugin') }}">添加插件</a></li>
+                {% endif %}
 
 				<li class="nav-header">其它管理</li>
 				<li><a href="{{ url_for('admin.account') }}">用户账户</a></li>
@@ -25,8 +33,8 @@
 			</ul>
         </div>
         <div class="col-md-10">
-            {% for category, message in get_flashed_messages(with_categories=true) %}
-                <div class="alert alert-{{category}} alert-dismissable">
+            {% for message in get_flashed_messages(with_categories=true) %}
+                <div class="alert alert-warning alert-dismissable">
                     <button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>
                     {{ message }}
                 </div>

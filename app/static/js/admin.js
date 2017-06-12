@@ -82,9 +82,10 @@ $(document).ready(function(){
 });
 
 //JS For reply to a comment in manage-comments page
-function pop_commentForm(followId, articleId) {
+function pop_commentForm(followId, articleId, authorId) {
     $('#follow').val(followId);
     $('#article').val(articleId);
+    $('#author').val(authorId);
     $('#commentFormModel').modal();
 }
 

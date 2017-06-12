@@ -1,8 +1,9 @@
 #coding:utf-8
 from flask import render_template, request, current_app, redirect,\
     url_for, flash
+from flask_login import current_user
 from . import main
-from ..models import Article, ArticleType, article_types, Comment, \
+from ..models import Permission, Article, ArticleType, article_types, Comment, \
     Follow, User, Source, BlogView
 from .forms import CommentForm
 from .. import db
@@ -54,18 +55,17 @@ def articleDetails(id):
     form = CommentForm(request.form, follow=-1)
     article = Article.query.get_or_404(id)
 
-    if form.validate_on_submit():
+    if current_user.can(Permission.COMMENT) and form.validate_on_submit():
         comment = Comment(article=article,
                           content=form.content.data,
-                          author_name=form.name.data,
-                          author_email=form.email.data)
+                          author=current_user._get_current_object())
         db.session.add(comment)
         followed_id = int(form.follow.data)
         if followed_id != -1:
             followed = Comment.query.get_or_404(followed_id)
             f = Follow(follower=comment, followed=followed)
             comment.comment_type = 'reply'
-            comment.reply_to = followed.author_name
+            comment.reply_to = followed.author.name
             db.session.add(f)
             db.session.add(comment)
         flash('提交评论成功！', 'success')
@@ -84,6 +84,6 @@ def articleDetails(id):
     article.add_view(article, db)
     return render_template('article_detials.html', User=User, article=article,
                            comments=comments, pagination=pagination, page=page,
-                           form=form, endpoint='.articleDetails', id=article.id)
+                           form=form, endpoint='.articleDetails', id=article.id, Permission=Permission)
     # page=page, this is used to return the current page args to the
     # disable comment or enable comment endpoint to pass it to the articleDetails endpoint

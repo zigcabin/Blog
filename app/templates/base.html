@@ -88,6 +88,10 @@
                                 <li><a href="{{ url_for('auth.logout') }}">退出登陆</a></li>
                             </ul>
                         </li>
+                    {% else %}
+                        <li><a href="{{ url_for('auth.login') }}" style="padding-right: 5px">登录</a></li>
+                        <li><a style="padding-left: 5px; padding-right: 5px">|</a></li>
+                        <li><a href="{{ url_for('auth.register') }}" style="padding-left: 5px">注册</a></li>
                     {% endif %}
                 </ul>
             </div>
@@ -99,9 +103,9 @@
         <div class="container">
             <div class="row">
                 <div class="col-md-8 article">
-                    {% for category, message in get_flashed_messages(with_categories=true) %}
-                        <div class="alert alert-{{ category }} alert-dismissable">
-                            <button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>
+                    {% for message in get_flashed_messages() %}
+                        <div class="alert alert-warning">
+                            <button type="button" class="close" data-dismiss="alert">&times;</button>
                             {{ message }}
                         </div>
                     {% endfor %}

@@ -399,9 +399,6 @@ class Comment(db.Model):
     content = db.Column(db.Text)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     author_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    #author_name = db.Column(db.String(64))
-    #author_email = db.Column(db.String(64))
-    #avatar_hash = db.Column(db.String(32))
     article_id = db.Column(db.Integer, db.ForeignKey('articles.id'))
     disabled = db.Column(db.Boolean, default=False)
     comment_type = db.Column(db.String(64), default='comment')
@@ -417,23 +414,6 @@ class Comment(db.Model):
                                backref=db.backref('followed', lazy='joined'),
                                lazy='dynamic',
                                cascade='all, delete-orphan')
-    # self.followed.first().followed.author_name
-    #def __init__(self, **kwargs):
-    #    super(Comment, self).__init__(**kwargs)
-    #    if self.author_email is not None and self.avatar_hash is None:
-    #        self.avatar_hash = hashlib.md5(
-    #                self.author_email.encode('utf-8')).hexdigest()
-
-    #def gravatar(self, size=40, default='identicon', rating='g'):
-        # if request.is_secure:
-        #     url = 'https://secure.gravatar.com/avatar'
-        # else:
-        #     url = 'http://www.gravatar.com/avatar'
-    #    url = 'http://gravatar.duoshuo.com/avatar'
-    #    hash = self.avatar_hash or hashlib.md5(
-    #        self.author_email.encode('utf-8')).hexdigest()
-    #    return '{url}/{hash}?s={size}&d={default}&r={rating}'.format(
-    #        url=url, hash=hash, size=size, default=default, rating=rating)
 
     @staticmethod
     def generate_fake(count=100):
@@ -492,7 +472,6 @@ class Article(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(64), unique=True)
     content = db.Column(db.Text)
-    summary = db.Column(db.Text)
     create_time = db.Column(db.DateTime, index=True, default=datetime.utcnow)
     update_time = db.Column(db.DateTime, index=True, default=datetime.utcnow)
     num_of_view = db.Column(db.Integer, default=0)
@@ -517,7 +496,6 @@ class Article(db.Model):
             u = User.query.offset(randint(0, user_count - 1)).first()
             a = Article(title=forgery_py.lorem_ipsum.title(randint(3, 5)),
                         content=forgery_py.lorem_ipsum.sentences(randint(15, 35)),
-                        summary=forgery_py.lorem_ipsum.sentences(randint(2, 5)),
                         num_of_view=randint(100, 15000),
                         articleType=aT, source=s, author=u)
             db.session.add(a)
